@@ -1,0 +1,4 @@
+{
+    "C_Cpp.errorSquiggles": "disabled",
+    "cmake.sourceDirectory": "/home/spark-robotics/Afrilogic-Solutions/Crowdsense-Env-WiFi/.pio/libdeps/esp32dev/ArduinoJson/extras/tests/JsonDocument"
+}

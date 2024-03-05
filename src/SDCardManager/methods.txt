@@ -1,0 +1,7 @@
+SD-CARD Methods
+
+sdCardManager.createDirectory("/testDir");
+sdCardManager.writeFile("/testDir/test.txt", "Hello, SD card!");
+sdCardManager.readFile("/testDir/test.txt");
+sdCardManager.deleteFile("/testDir/test.txt");
+sdCardManager.removeDirectory("/testDir");
