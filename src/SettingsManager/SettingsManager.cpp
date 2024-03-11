@@ -10,12 +10,13 @@ const char* SettingsManager::_jsonTemplate =
     "    \"p2-offset\": 0.0,"
     "    \"p0-offset\": 0.0,"
     "    \"soun-offset\": 0.0,"
-    "    \"lux-offset\": 0.0"
+    "    \"lux-offset\": 0.0,"
+    "    \"uv-offset\": 0.0"
     "}";
 
 SettingsManager::SettingsManager(fs::FS &fs) : _fs(fs) {}
 
-void SettingsManager::readSettings(const char *path, DynamicJsonDocument &doc) {
+void SettingsManager::readSettings(const char *path, JsonDocument &doc) {
     File file = _fs.open(path);
     if (!file) {
         Serial.println("Failed to open file for reading");
@@ -25,7 +26,7 @@ void SettingsManager::readSettings(const char *path, DynamicJsonDocument &doc) {
     file.close();
 }
 
-void SettingsManager::saveSettings(const char *path, const DynamicJsonDocument &doc) {
+void SettingsManager::saveSettings(const char *path, const JsonDocument &doc) {
     File file = _fs.open(path, FILE_WRITE);
     if (!file) {
         Serial.println("Failed to open file for writing");
@@ -36,7 +37,7 @@ void SettingsManager::saveSettings(const char *path, const DynamicJsonDocument &
 }
 
 void SettingsManager::updateSettings(const char *path, int newFrequency, float tempOffset, float humiOffset, float pressOffset, float p1Offset, float p2Offset, float p0Offset, float sounOffset, float luxOffset, float uvOffset) {
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     readSettings(path, doc);
 
     // Update values
@@ -49,7 +50,7 @@ void SettingsManager::updateSettings(const char *path, int newFrequency, float t
     doc["p0-offset"] = p0Offset;
     doc["soun-offset"] = sounOffset;
     doc["lux-offset"] = luxOffset;
-    doc["UV-offset"] = uvOffset;
+    doc["uv-offset"] = uvOffset;
 
 
     // Save the updated document
@@ -57,7 +58,7 @@ void SettingsManager::updateSettings(const char *path, int newFrequency, float t
 }
 
 void SettingsManager::updateWiFi(const char *path, String ssid, String password) {
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     readSettings(path, doc);
 
     // Update values

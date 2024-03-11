@@ -28,6 +28,8 @@ bool vemli2c = false;
 bool bmei2c = false;
 bool uvi2c = false;
 bool rtci2c = false;
+bool startDevice = false;
+bool sDmode = false;
 
 SDCardManager sdCardManager;
 SettingsManager settingsManager(SD);
@@ -41,8 +43,7 @@ AsyncWebServer server(80);
 String networkList;
 const int maxRetries = 3;
 const int retryTimeout = 10000;
-bool startDevice = false;
-bool sDmode = false;
+
 
 String url = "https://cctelemetry-dev.azurewebsites.net/telemetry";
 
