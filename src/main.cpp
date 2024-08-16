@@ -22,7 +22,7 @@
 #define RX 16
 #define TX 17
 #define MIC 33
-#define EID "2e3"
+#define EID "2e4"
 
 SDCardManager sdCardManager;
 SettingsManager settingsManager(SD);
@@ -44,6 +44,7 @@ bool ltrMode = false;
 bool luxMode = false;
 bool rtcMode = false;
 bool cardMode = false;
+String Status = "";
 
 String url = "https://cctelemetry-dev.azurewebsites.net/telemetry";
 
@@ -52,9 +53,9 @@ const char *directoryPath = "/data";
 const char *filePath = "/data/data.json";
 const char *wifiPath = "/WiFimanager/config.json";
 
-DynamicJsonDocument currentSettings(1024);
-DynamicJsonDocument telemetryData(1024);
-DynamicJsonDocument config(526);
+JsonDocument currentSettings;
+JsonDocument telemetryData;
+JsonDocument config;
 
 SoftwareSerial pmsSerial(RX, TX);
 float micSensitivity = -26;
@@ -247,6 +248,7 @@ void connectWiFi(String s, String p)
     Serial.printf("Connecting to WiFi... Retry %d\n", retries + 1);
     WiFi.begin(s, p);
 
+    delay(300);
     // Wait for WiFi connection or timeout
     int timeout = 0;
     while (WiFi.status() != WL_CONNECTED && timeout < retryTimeout)
@@ -349,13 +351,27 @@ public:
   }
 };
 
+void setRTCDateTime(String response) {
+  // Extract server time from response
+  StaticJsonDocument<200> doc;
+  deserializeJson(doc, response);
+  long serverTime = doc["serverTime"];
+
+  if (serverTime != 0) {
+    // Set RTC with the server time
+    rtc.adjust(DateTime(serverTime));
+    Serial.println("RTC updated with server time");
+  } else {
+    Serial.println("Server time is 0, RTC not updated");
+  }
+}
+
 void setup()
 {
   Serial.begin(9600);
   pmsSerial.begin(9600);
   pinMode(PWR_CTRL, OUTPUT);
   // pinMode(BAT, INPUT);
-
 
   delay(25);
 
@@ -380,7 +396,7 @@ void setup()
 
       Serial.println("No Access Point Credentials Found");
 
-      WiFi.softAP("CrowdSense-2e3");
+      WiFi.softAP("CrowdSense-2e4");
       dnsServer.start(53, "*", WiFi.softAPIP());
       server.addHandler(new CaptiveRequestHandler()).setFilter(ON_AP_FILTER); // Only when requested from AP
       server.begin();
@@ -395,7 +411,7 @@ void setup()
 
     if (!SD.exists(settingsFilePath))
     {
-      DynamicJsonDocument jsonTemplate(1024);
+      JsonDocument jsonTemplate;
       deserializeJson(jsonTemplate, settingsManager.getJsonTemplate());
       settingsManager.saveSettings(settingsFilePath, jsonTemplate);
     }
@@ -403,12 +419,11 @@ void setup()
     sdCardManager.createDirectory(directoryPath);
   }
 
-
   bmeMode = bme.begin();
   if (!bmeMode)
   {
     Serial.println("BME680 Sensor Not Found");
-    return;
+    // Status += "1";
   }
   else
   {
@@ -418,29 +433,32 @@ void setup()
     bme.setPressureOversampling(BME680_OS_4X);
     bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
     bme.setGasHeater(320, 150);
+    // Status += "0";
   }
 
   luxMode = veml.begin();
   if (!luxMode)
   {
     Serial.println("Lux Sensor Not Found");
-    return;
+    // Status += "1";
   }
   else
   {
     Serial.println("Lux Sensor Working");
+    // Status += "0";
   }
 
   rtcMode = rtc.begin();
   if (!rtcMode)
   {
     Serial.println("RTC Sensor Not Found");
-    return;
+    // Status += "1";
   }
   else
   {
     Serial.println("RTC Sensor Working");
-    // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    // Status += "0";
+    //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
 
     // if (!rtc.isrunning()) {
     // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
@@ -451,11 +469,12 @@ void setup()
   if (!ltrMode)
   {
     Serial.println("Couldn't find LTR sensor!");
-    return;
+    // Status += "1";
   }
   else
   {
     Serial.println("LTR Sensor Working");
+    // Status += "0";
 
     ltr.setMode(LTR390_MODE_UVS);
     if (ltr.getMode() == LTR390_MODE_ALS)
@@ -475,10 +494,8 @@ void setup()
   delay(5000);
 }
 
-
 void loop()
 {
-
   dnsServer.processNextRequest();
 
   if (startDevice)
@@ -490,20 +507,21 @@ void loop()
     Serial.println();
     Serial.println(" ");
 
-    // telemetryData["s"] = 0;
-    // telemetryData["t"] = 0;
-    // telemetryData["p"] = 0;
-    // telemetryData["h"] = 0;
-    // telemetryData["p1"] = 0;
-    // telemetryData["p2"] = 0;
-    // telemetryData["p0"] = 0;
-    // telemetryData["l"] = 0;
-    // telemetryData["b"] = 0;
-    // telemetryData["d"] = 0;
-    // telemetryData["i"] = "";
-    // telemetryData["uv"] = 0;
+    telemetryData["s"] = 0;
+    telemetryData["t"] = 0;
+    telemetryData["p"] = 0;
+    telemetryData["h"] = 0;
+    telemetryData["p1"] = 0;
+    telemetryData["p2"] = 0;
+    telemetryData["p0"] = 0;
+    telemetryData["l"] = 0;
+    telemetryData["b"] = 0;
+    telemetryData["d"] = 0;
+    telemetryData["i"] = "";
+    telemetryData["uv"] = 0;
+    telemetryData["e"] = 0;
 
-    if (bme.endReading())
+    if (bme.endReading() && bme.begin())
     {
       printf("BME680 Sensor Data Reading", true);
 
@@ -536,24 +554,60 @@ void loop()
       Serial.print(dataPress);
       Serial.println(" ");
       Serial.println(" ");
+      Status += "0";
     }
     else
     {
       printf("BME680 Sensor Data Reading Failed", false);
+      Status += "1";
+
       Serial.println(" ");
       Serial.println(" ");
     }
 
-    Serial.print(F("Lux = "));
-    Serial.print(veml.readLux());
-    float datalux = currentSettings["Lux-offset"];
-    float luxy = veml.readLux();
-    telemetryData["l"] = luxy + datalux;
-    Serial.println();
-    Serial.print(F("Lux_Offset = "));
-    Serial.print(datalux);
-    Serial.println(" ");
-    Serial.println(" ");
+    if (veml.begin())
+    {
+      Serial.print(F("Lux = "));
+      Serial.print(veml.readLux());
+      float datalux = currentSettings["Lux-offset"];
+      float luxy = veml.readLux();
+      telemetryData["l"] = luxy + datalux;
+      Serial.println();
+      Serial.print(F("Lux_Offset = "));
+      Serial.print(datalux);
+      Serial.println(" ");
+      Serial.println(" ");
+      Status += "0";
+    }
+    else
+    {
+      Serial.println("Lux Sensor not working");
+      Status += "1";
+    }
+
+    if (rtc.begin())
+    {
+      DateTime now = rtc.now();
+      Serial.print(F("Timestamp = "));
+      Serial.print(now.unixtime());
+      telemetryData["d"] = now.unixtime();
+      Serial.println();
+      Serial.println(" ");
+      Serial.println(" ");
+
+      Serial.print(F("Battery Raw = "));
+      Serial.print(4.2);   // analogRead(BAT));
+      float battery = 4.2; // analogRead(BAT);
+      telemetryData["b"] = battery;
+      Serial.println(" ");
+      Serial.println(" ");
+      Status += "0";
+    }
+    else
+    {
+      Serial.println("RTC is not working");
+      Status += "1";
+    }
 
     if (ltr.newDataAvailable())
     {
@@ -567,22 +621,13 @@ void loop()
       Serial.print(datauv);
       Serial.println(" ");
       Serial.println(" ");
+      Status += "0";
     }
 
-    DateTime now = rtc.now();
-    Serial.print(F("Timestamp = "));
-    Serial.print(now.unixtime());
-    telemetryData["d"] = now.unixtime();
-    Serial.println();
-    Serial.println(" ");
-    Serial.println(" ");
-
-    Serial.print(F("Battery Raw = "));
-    Serial.print(4.2);   // analogRead(BAT));
-    float battery = 4.2; // analogRead(BAT);
-    telemetryData["b"] = battery;
-    Serial.println(" ");
-    Serial.println(" ");
+    else
+    {
+      Status += "1";
+    }
 
     if (readPMSdata(&pmsSerial))
     {
@@ -638,7 +683,9 @@ void loop()
     MICP();
     // telemetryData["s"] =random(120.1,140.4);
     telemetryData["i"] = EID;
+    telemetryData["e"] = Status;
 
+    Serial.println(Status);
     serializeJsonPretty(telemetryData, Serial);
     String jsonString;
     serializeJson(telemetryData, jsonString);
@@ -658,6 +705,7 @@ void loop()
     {
       String response = http.getString();
       Serial.println(response);
+      setRTCDateTime(response);
     }
     else
     {
@@ -666,6 +714,7 @@ void loop()
     }
 
     telemetryData.clear();
+    Status = "";
 
     delay(1000);
 
