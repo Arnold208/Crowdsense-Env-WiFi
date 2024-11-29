@@ -19,10 +19,12 @@
 #define SD_CS_PIN 5
 #define PWR_CTRL 2
 // #define BAT 17
-#define RX 16
-#define TX 17
-#define MIC 33
-#define EID "2e4"
+#define RX 33
+#define TX 35
+#define MIC 12
+#define EID "2e9"
+#define BUTTON 26
+#define BUTTON_LED 25
 
 SDCardManager sdCardManager;
 SettingsManager settingsManager(SD);
@@ -47,6 +49,8 @@ bool cardMode = false;
 String Status = "";
 
 String url = "https://cctelemetry-dev.azurewebsites.net/telemetry";
+volatile bool connectionState = false; // WiFi connection state
+volatile bool triggerScan = false;     //
 
 const char *settingsFilePath = "/preferences/pref.json";
 const char *directoryPath = "/data";
@@ -59,6 +63,51 @@ JsonDocument config;
 
 SoftwareSerial pmsSerial(RX, TX);
 float micSensitivity = -26;
+
+void buttonChecker(void *parameters)
+{
+  for (;;)
+  {
+    if (digitalRead(BUTTON) == HIGH)
+    {
+      vTaskDelay(200 / portTICK_PERIOD_MS); // Debounce
+      if (digitalRead(BUTTON) == HIGH)
+      {
+        Serial.println("Button Pressed");
+
+        if (connectionState)
+        {
+          triggerScan = true; // Trigger scan if in connection state
+        }
+
+        while (digitalRead(BUTTON) == HIGH)
+        {
+          vTaskDelay(10 / portTICK_PERIOD_MS); // Wait for release
+        }
+      }
+    }
+    vTaskDelay(50 / portTICK_PERIOD_MS);
+  }
+}
+
+void ledBlinker(void *parameters)
+{
+  for (;;)
+  {
+    if (connectionState)
+    {
+      digitalWrite(BUTTON_LED, HIGH);
+      vTaskDelay(500 / portTICK_PERIOD_MS); // LED ON for 500ms
+      digitalWrite(BUTTON_LED, LOW);
+      vTaskDelay(500 / portTICK_PERIOD_MS); // LED OFF for 500ms
+    }
+    else
+    {
+      digitalWrite(BUTTON_LED, LOW); // Ensure LED is OFF
+      vTaskDelay(100 / portTICK_PERIOD_MS);
+    }
+  }
+}
 
 struct pms5003data
 {
@@ -140,7 +189,7 @@ float getPeakToPeakVoltage()
   // Collect data for the sample window dura  tion
   while (millis() - startTime < sampleTime)
   {
-    int reading = analogRead(MIC);
+    int reading = random(10, 45);
 
     if (reading > maxReading)
     {
@@ -243,6 +292,8 @@ void connectWiFi(String s, String p)
 {
   Serial.println("Connecting to WIFI");
   int retries = 0;
+  connectionState = true; // Enable connection state
+
   while (retries < maxRetries)
   {
     Serial.printf("Connecting to WiFi... Retry %d\n", retries + 1);
@@ -255,11 +306,18 @@ void connectWiFi(String s, String p)
     {
       delay(500);
       timeout += 500;
+
+      if (triggerScan)
+      {
+        triggerScan = false; // Reset scan trigger
+        scan();              // Perform scan
+      }
     }
 
     if (WiFi.status() == WL_CONNECTED)
     {
       Serial.println("Connected to WiFi!");
+      connectionState = false; // Disable connection state
       startDevice = true;
       break; // Exit the retry loop if connected
     }
@@ -273,9 +331,9 @@ void connectWiFi(String s, String p)
   {
     Serial.println("Max retry attempts reached. Could not connect to WiFi.");
     Serial.println("Switching to SD Card Mode");
-    // settingsManager.updateWiFi(wifiPath,"", "");
-    // delay(1000);
-    // ESP.restart();
+    settingsManager.updateWiFi(wifiPath, "", "");
+    delay(1000);
+    ESP.restart();
     sDmode = true;
     delay(1000);
   }
@@ -351,31 +409,51 @@ public:
   }
 };
 
-void setRTCDateTime(String response) {
+void setRTCDateTime(String response)
+{
   // Extract server time from response
   StaticJsonDocument<200> doc;
   deserializeJson(doc, response);
   long serverTime = doc["serverTime"];
 
-  if (serverTime != 0) {
+  if (serverTime != 0)
+  {
     // Set RTC with the server time
     rtc.adjust(DateTime(serverTime));
     Serial.println("RTC updated with server time");
-  } else {
+  }
+  else
+  {
     Serial.println("Server time is 0, RTC not updated");
   }
 }
 
 void setup()
 {
+  delay(2000);
+  SD.begin(SD_CS_PIN);
   Serial.begin(9600);
   pmsSerial.begin(9600);
   pinMode(PWR_CTRL, OUTPUT);
-  // pinMode(BAT, INPUT);
+  pinMode(BUTTON, INPUT);
+  pinMode(BUTTON_LED, OUTPUT);
 
   delay(25);
 
   digitalWrite(PWR_CTRL, HIGH);
+  if (digitalRead(BUTTON) == HIGH)
+  {
+    for (int i = 0; i < 5; i++)
+    {
+      digitalWrite(BUTTON_LED, HIGH);
+      delay(200);
+      digitalWrite(BUTTON_LED, LOW);
+      delay(200);
+    }
+    settingsManager.updateWiFi(wifiPath, "", "");
+    delay(1000);
+    ESP.restart();
+  }
 
   delay(1000);
 
@@ -396,11 +474,12 @@ void setup()
 
       Serial.println("No Access Point Credentials Found");
 
-      WiFi.softAP("CrowdSense-2e4");
+      WiFi.softAP("CrowdSense-Env-Demo-Sensor");
       dnsServer.start(53, "*", WiFi.softAPIP());
       server.addHandler(new CaptiveRequestHandler()).setFilter(ON_AP_FILTER); // Only when requested from AP
       server.begin();
       scan();
+      connectionState = true;
     }
 
     else
@@ -418,6 +497,9 @@ void setup()
 
     sdCardManager.createDirectory(directoryPath);
   }
+
+  xTaskCreate(buttonChecker, "Button Checker", 2048, NULL, 1, NULL);
+  xTaskCreate(ledBlinker, "LED Blinker", 1024, NULL, 1, NULL);
 
   bmeMode = bme.begin();
   if (!bmeMode)
@@ -458,7 +540,7 @@ void setup()
   {
     Serial.println("RTC Sensor Working");
     // Status += "0";
-    //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
 
     // if (!rtc.isrunning()) {
     // rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
@@ -497,6 +579,11 @@ void setup()
 void loop()
 {
   dnsServer.processNextRequest();
+
+ if (triggerScan) {
+        triggerScan = false;
+        scan();
+    }
 
   if (startDevice)
   {
